@@ -2,45 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Strava OAuth Token Generator</title>
+<title>Strava OAuth Code</title>
 <style>
 body { font-family: Arial; background: #0d1117; color: #e6edf3; text-align: center; padding: 30px; }
-button { padding: 10px 20px; font-size: 16px; border-radius: 6px; cursor: pointer; }
-pre { background: #21262d; padding: 15px; border-radius: 8px; display: inline-block; margin-top: 20px; text-align: left; }
+pre { background: #21262d; padding: 15px; border-radius: 8px; display: inline-block; margin-top: 20px; }
 </style>
 </head>
 <body>
-<h1>Get Your Strava Refresh Token</h1>
-<p>Click the button below to authorize:</p>
-<button id="authBtn">Authorize with Strava</button>
-<div id="result"></div>
+<h1>Strava Authorization Code</h1>
+<p>If you were redirected here, copy the code from below:</p>
+<pre id="code">Waiting for code...</pre>
 
 <script>
-const CLIENT_ID = 'YOUR_CLIENT_ID'; // replace with your Strava app client ID
-const REDIRECT_URI = window.location.origin + window.location.pathname; // same page
-
-document.getElementById('authBtn').onclick = () => {
-    const authUrl = `https://www.strava.com/oauth/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=activity:read_all&approval_prompt=auto`;
-    window.location.href = authUrl;
-};
-
-// After redirect, get code from URL
+// Get the "code" parameter from URL
 const params = new URLSearchParams(window.location.search);
 if(params.has('code')){
     const code = params.get('code');
-    document.getElementById('result').innerHTML = '<p>Exchanging code for refresh token...</p>';
-
-    // Exchange code for tokens via Strava
-    fetch(`https://www.strava.com/oauth/token?client_id=${CLIENT_ID}&client_secret=YOUR_CLIENT_SECRET&code=${code}&grant_type=authorization_code`, {
-        method: 'POST'
-    })
-    .then(res => res.json())
-    .then(data => {
-        document.getElementById('result').innerHTML = `<h3>Copy this Refresh Token:</h3><pre>${data.refresh_token}</pre>`;
-    })
-    .catch(err => {
-        document.getElementById('result').innerHTML = `<p style="color:red;">Error: ${err}</p>`;
-    });
+    document.getElementById('code').textContent = code;
+} else {
+    document.getElementById('code').textContent = 'No code found in URL.';
 }
 </script>
 </body>

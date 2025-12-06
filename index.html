@@ -5,23 +5,36 @@
 <title>Strava OAuth Code</title>
 <style>
 body { font-family: Arial; background: #0d1117; color: #e6edf3; text-align: center; padding: 30px; }
-pre { background: #21262d; padding: 15px; border-radius: 8px; display: inline-block; margin-top: 20px; }
+pre { background: #21262d; padding: 15px; border-radius: 8px; display: inline-block; margin-top: 20px; user-select: all; }
+button { padding: 10px 20px; font-size: 16px; margin-top: 15px; border-radius: 6px; cursor: pointer; }
 </style>
 </head>
 <body>
 <h1>Strava Authorization Code</h1>
-<p>If you were redirected here, copy the code from below:</p>
+<p>If you were redirected here, copy the code from below and send it to the app owner:</p>
 <pre id="code">Waiting for code...</pre>
-  
+<br>
+<button id="copyBtn">Copy to Clipboard</button>
+
 <script>
 // Get the "code" parameter from URL
 const params = new URLSearchParams(window.location.search);
+const codeEl = document.getElementById('code');
 if(params.has('code')){
     const code = params.get('code');
-    document.getElementById('code').textContent = code;
+    codeEl.textContent = code;
 } else {
-    document.getElementById('code').textContent = 'No code found in URL.';
+    codeEl.textContent = 'No code found in URL.';
 }
+
+// Copy button functionality
+document.getElementById('copyBtn').onclick = () => {
+    navigator.clipboard.writeText(codeEl.textContent).then(() => {
+        alert('Code copied to clipboard!');
+    }).catch(() => {
+        alert('Failed to copy code. Please copy manually.');
+    });
+};
 </script>
 </body>
 </html>

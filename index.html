@@ -2,39 +2,103 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Strava OAuth Code</title>
+<title>Strava Authorization — Troop Dashboard</title>
 <style>
-body { font-family: Arial; background: #0d1117; color: #e6edf3; text-align: center; padding: 30px; }
-pre { background: #21262d; padding: 15px; border-radius: 8px; display: inline-block; margin-top: 20px; user-select: all; }
-button { padding: 10px 20px; font-size: 16px; margin-top: 15px; border-radius: 6px; cursor: pointer; }
+body {
+    font-family: Arial;
+    background: #0d1117;
+    color: #e6edf3;
+    text-align: center;
+    padding: 30px;
+    max-width: 600px;
+    margin: auto;
+}
+button {
+    padding: 12px 22px;
+    font-size: 18px;
+    background: #238636;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+button:hover {
+    background: #2ea043;
+}
+pre {
+    background: #21262d;
+    padding: 15px;
+    border-radius: 8px;
+    display: inline-block;
+    margin-top: 20px;
+    text-align: left;
+    font-size: 16px;
+}
+.box {
+    background: #1b1f25;
+    padding: 20px;
+    border-radius: 12px;
+    margin-top: 25px;
+    text-align: left;
+}
+h2 {
+    color: #58a6ff;
+}
 </style>
 </head>
 <body>
-<h1>Strava Authorization Code</h1>
-<p>If you were redirected here, copy the code from below and send it to the app owner:</p>
-<pre id="code">Waiting for code...</pre>
-<br>
-<button id="copyBtn">Copy to Clipboard</button>
+
+<h1>Join the Troop Strava Dashboard</h1>
+<p>Follow the steps below to connect your Strava account.</p>
+
+<div class="box">
+    <h2>Step 1 — Authorize Strava</h2>
+    <p>Click the button below to authorize your Strava account.</p>
+
+    <button id="authBtn">Authorize with Strava</button>
+
+    <p style="font-size:14px; opacity:0.8; margin-top:10px;">
+        You will be asked to log in and grant read access to your activities.
+    </p>
+</div>
+
+<div class="box">
+    <h2>Step 2 — Copy Your Code</h2>
+    <p>If you were redirected back here after authorizing, your code appears below:</p>
+    <pre id="code">Waiting for code...</pre>
+</div>
+
+<div class="box">
+    <h2>Step 3 — Send Code to Will</h2>
+    <p>Just copy the code from Step 2 and send it to Will.<br>
+       He will convert it into a refresh token so your Strava data updates automatically.
+    </p>
+</div>
 
 <script>
-// Get the "code" parameter from URL
-const params = new URLSearchParams(window.location.search);
-const codeEl = document.getElementById('code');
-if(params.has('code')){
-    const code = params.get('code');
-    codeEl.textContent = code;
-} else {
-    codeEl.textContent = 'No code found in URL.';
-}
+const CLIENT_ID = "YOUR_CLIENT_ID"; 
+const REDIRECT_URI = "YOUR_REDIRECT_URL";  // e.g. https://tolmanw.github.io/strava-auth-link/
 
-// Copy button functionality
-document.getElementById('copyBtn').onclick = () => {
-    navigator.clipboard.writeText(codeEl.textContent).then(() => {
-        alert('Code copied to clipboard!');
-    }).catch(() => {
-        alert('Failed to copy code. Please copy manually.');
-    });
+document.getElementById('authBtn').onclick = () => {
+    const authUrl =
+        `https://www.strava.com/oauth/authorize` +
+        `?client_id=${CLIENT_ID}` +
+        `&response_type=code` +
+        `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+        `&scope=activity:read_all` +
+        `&approval_prompt=auto`;
+
+    window.location.href = authUrl;
 };
+
+// Check for `code` in URL
+const params = new URLSearchParams(window.location.search);
+if (params.has("code")) {
+    document.getElementById("code").textContent = params.get("code");
+} else {
+    document.getElementById("code").textContent = "No code found yet.";
+}
 </script>
+
 </body>
 </html>

@@ -74,7 +74,7 @@ if (params.has("code")) {
     codeEl.textContent = "Exchanging code for refresh token...";
     
     // Call your public Render backend
-    fetch(`${BACKEND_URL}/exchange-code?code=${authCode}`)
+    fetch(`https://strava-auth-link.onrender.com/exchange-code?code=${authCode}`)
         .then(resp => resp.json())
         .then(data => {
             if (data.refresh_token) {

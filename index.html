@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Strava Authorisation — Troop Dashboard</title>
+<title>Strava Authorization — Troop Dashboard</title>
 
 <style>
 body {
@@ -38,7 +38,7 @@ h2 { color: #58a6ff; }
 <div class="box">
     <h2>Step 1 — Authorise Strava</h2>
     <p>Click the button below to authorise your Strava account.</p>
-    <button id="authBtn">Authorise with Strava</button>
+    <button id="authBtn">Authorize with Strava</button>
 </div>
 
 <div class="box">
@@ -90,7 +90,7 @@ if (params.has("code")) {
             codeEl.textContent = "Error connecting to server: " + err;
         });
 } else {
-    codeEl.textContent = "No code found yet. Click 'authorise with Strava' above.";
+    codeEl.textContent = "No code found yet. Click 'Authorize with Strava' above.";
 }
 </script>
 

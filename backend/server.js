@@ -11,8 +11,9 @@ const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fet
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Allow requests from your frontend only (or "*" for testing)
 app.use(cors({
-  origin: "*" // or limit to your frontend URL if desired
+  origin: "https://tolmanw.github.io" // change as needed
 }));
 
 // Path to store refresh tokens
@@ -39,11 +40,14 @@ function basicAuth(req, res, next) {
         return res.status(401).send("Authentication required.");
     }
 
-    const base64Credentials = authHeader.split(' ')[1];
+    const base64Credentials = authHeader.split(' ')[1] || '';
     const credentials = Buffer.from(base64Credentials, 'base64').toString('ascii');
-    const [username, password] = credentials.split(':');
+    const [username, password] = credentials.split(':').map(s => s.trim());
 
-    if (username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD) {
+    if (
+        username === (process.env.ADMIN_USER || "").trim() &&
+        password === (process.env.ADMIN_PASS || "").trim()
+    ) {
         return next();
     } else {
         res.setHeader('WWW-Authenticate', 'Basic realm="Restricted"');

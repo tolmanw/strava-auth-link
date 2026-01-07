@@ -1,0 +1,8 @@
+# Playground files to never push
+index.html
+
+# Local node stuff
+node_modules/
+.env
+backend/tokens.json
+refresh_tokens.json

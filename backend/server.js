@@ -11,6 +11,7 @@ const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fet
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Only allow frontend from your GitHub Pages (optional)
 app.use(cors({
   origin: "https://tolmanw.github.io"
 }));
@@ -28,6 +29,28 @@ function saveRefreshToken(userId, name, token) {
     data[userId] = { name, refresh_token: token };
     fs.writeFileSync(TOKENS_FILE, JSON.stringify(data, null, 2));
     console.log(`Saved refresh token for user ${userId} (${name})`);
+}
+
+// Basic Auth middleware to protect /tokens
+function requireAuth(req, res, next) {
+    const auth = req.headers.authorization;
+    const adminUser = process.env.ADMIN_USER;
+    const adminPass = process.env.ADMIN_PASS;
+
+    if (!auth || !auth.startsWith("Basic ")) {
+        res.set("WWW-Authenticate", 'Basic realm="Tokens"');
+        return res.status(401).send("Authentication required");
+    }
+
+    const base64Credentials = auth.split(" ")[1];
+    const [user, pass] = Buffer.from(base64Credentials, "base64").toString("ascii").split(":");
+
+    if (user === adminUser && pass === adminPass) {
+        return next();
+    }
+
+    res.set("WWW-Authenticate", 'Basic realm="Tokens"');
+    return res.status(401).send("Invalid credentials");
 }
 
 // Route to exchange Strava auth code for refresh token
@@ -69,9 +92,8 @@ app.get("/exchange-code", async (req, res) => {
 
         const profileData = await profileResp.json();
         const name = profileData.firstname && profileData.lastname
-			? `${profileData.firstname} ${profileData.lastname}`
-			: "Unknown Athlete";
-
+            ? `${profileData.firstname} ${profileData.lastname}`
+            : "Unknown Athlete";
 
         // Step 3: Save user name + refresh token
         saveRefreshToken(userId, name, refreshToken);
@@ -83,8 +105,8 @@ app.get("/exchange-code", async (req, res) => {
     }
 });
 
-// Optional: Route to list saved tokens (for testing)
-app.get("/tokens", (req, res) => {
+// Route to list saved tokens (protected)
+app.get("/tokens", requireAuth, (req, res) => {
     if (fs.existsSync(TOKENS_FILE)) {
         const data = fs.readFileSync(TOKENS_FILE);
         res.json(JSON.parse(data));

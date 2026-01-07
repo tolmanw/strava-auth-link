@@ -49,6 +49,8 @@ h2 { color: #58a6ff; }
 
 <script>
 const CLIENT_ID = 188228;
+// Use your public Render backend URL here
+const BACKEND_URL = "https://your-render-backend.onrender.com";
 const REDIRECT_URI = "https://tolmanw.github.io/strava-auth-link/";
 
 // Step 1: Open Strava authorization
@@ -71,8 +73,8 @@ if (params.has("code")) {
     const authCode = params.get("code");
     codeEl.textContent = "Exchanging code for refresh token...";
     
-    // Call your server endpoint
-    fetch(`http://localhost:3000/exchange-code?code=${authCode}`)
+    // Call your public Render backend
+    fetch(`${BACKEND_URL}/exchange-code?code=${authCode}`)
         .then(resp => resp.json())
         .then(data => {
             if (data.refresh_token) {

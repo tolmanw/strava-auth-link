@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Strava Authorization — Troop Dashboard</title>
+
+<style>
+body {
+    font-family: Arial;
+    background: #0d1117;
+    color: #e6edf3;
+    text-align: center;
+    padding: 30px;
+    max-width: 600px;
+    margin: auto;
+}
+button {
+    padding: 12px 22px;
+    font-size: 18px;
+    background: #238636;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+button:hover { background: #2ea043; }
+pre { background: #21262d; padding: 15px; border-radius: 8px; display: inline-block; margin-top: 20px; font-size: 16px; }
+pre.success { background: #12261a; border: 1px solid #238636; color: #3fb950; }
+.box { background: #1b1f25; padding: 20px; border-radius: 12px; margin-top: 25px; text-align: left; }
+h2 { color: #58a6ff; }
+</style>
+</head>
+<body>
+
+<h1>Join the Troop Strava Dashboard</h1>
+<p>Follow the steps below to connect your Strava account.</p>
+
+<div class="box">
+    <h2>Step 1 — Authorize Strava</h2>
+    <p>Click the button below to authorize your Strava account.</p>
+    <button id="authBtn">Authorize with Strava</button>
+</div>
+
+<div class="box">
+    <h2>Step 2 — Your Refresh Token</h2>
+    <p>If you were redirected back after authorization, your refresh token appears below:</p>
+    <pre id="code">Waiting for code...</pre>
+</div>
+
+<script>
+const CLIENT_ID = 188228;
+// Use your public Render backend URL here
+const BACKEND_URL = "https://your-render-backend.onrender.com";
+const REDIRECT_URI = "https://tolmanw.github.io/strava-auth-link/";
+
+// Step 1: Open Strava authorization
+document.getElementById('authBtn').onclick = () => {
+    const authUrl =
+        `https://www.strava.com/oauth/authorize` +
+        `?client_id=${CLIENT_ID}` +
+        `&response_type=code` +
+        `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+        `&scope=activity:read_all` +
+        `&approval_prompt=auto`;
+    window.location.href = authUrl;
+};
+
+// Step 2: Check if redirected with code
+const params = new URLSearchParams(window.location.search);
+const codeEl = document.getElementById("code");
+
+if (params.has("code")) {
+    const authCode = params.get("code");
+    codeEl.textContent = "Exchanging code for refresh token...";
+    
+    // Call your public Render backend
+    fetch(`${BACKEND_URL}/exchange-code?code=${authCode}`)
+        .then(resp => resp.json())
+        .then(data => {
+            if (data.refresh_token) {
+                codeEl.textContent = data.refresh_token;
+                codeEl.classList.add("success");
+            } else if (data.message) {
+                codeEl.textContent = "Error: " + data.message;
+            } else {
+                codeEl.textContent = "Unknown error during token exchange.";
+            }
+        })
+        .catch(err => {
+            codeEl.textContent = "Error connecting to server: " + err;
+        });
+} else {
+    codeEl.textContent = "No code found yet. Click 'Authorize with Strava' above.";
+}
+</script>
+
+</body>
+</html>

@@ -11,7 +11,7 @@ const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fet
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Only allow frontend from your GitHub Pages (optional)
+// Allow your frontend (GitHub Pages) to call the backend
 app.use(cors({
   origin: "https://tolmanw.github.io"
 }));
@@ -19,51 +19,37 @@ app.use(cors({
 // Path to store refresh tokens
 const TOKENS_FILE = path.join(__dirname, "refresh_tokens.json");
 
-// Helper to save refresh token with user name
-function saveRefreshToken(userId, name, token) {
+// Helper to save refresh token with athlete ID
+function saveRefreshToken(athleteId, name, token) {
     let data = {};
+
+    // Load existing JSON if it exists
     if (fs.existsSync(TOKENS_FILE)) {
         const raw = fs.readFileSync(TOKENS_FILE);
-        data = JSON.parse(raw);
+        try {
+            data = JSON.parse(raw);
+        } catch (e) {
+            console.warn("Failed to parse JSON, starting fresh");
+            data = {};
+        }
     }
-    data[userId] = { name, refresh_token: token };
+
+    // Add or update this athlete
+    data[athleteId] = { name, refresh_token: token };
+
+    // Save back to disk
     fs.writeFileSync(TOKENS_FILE, JSON.stringify(data, null, 2));
-    console.log(`Saved refresh token for user ${userId} (${name})`);
-}
-
-// Basic Auth middleware to protect /tokens
-function requireAuth(req, res, next) {
-    const auth = req.headers.authorization;
-    const adminUser = process.env.ADMIN_USER;
-    const adminPass = process.env.ADMIN_PASS;
-
-    if (!auth || !auth.startsWith("Basic ")) {
-        res.set("WWW-Authenticate", 'Basic realm="Tokens"');
-        return res.status(401).send("Authentication required");
-    }
-
-    const base64Credentials = auth.split(" ")[1];
-    const [user, pass] = Buffer.from(base64Credentials, "base64").toString("ascii").split(":");
-
-    if (user === adminUser && pass === adminPass) {
-        return next();
-    }
-
-    res.set("WWW-Authenticate", 'Basic realm="Tokens"');
-    return res.status(401).send("Invalid credentials");
+    console.log(`Saved refresh token for athlete ${athleteId} (${name})`);
 }
 
 // Route to exchange Strava auth code for refresh token
 app.get("/exchange-code", async (req, res) => {
     const code = req.query.code;
-    const userId = req.query.userId || "default_user";
 
     if (!code) return res.status(400).json({ message: "No code provided" });
 
     try {
-        console.log(`Exchanging code for user: ${userId}`);
-
-        // Step 1: Exchange code for access + refresh tokens
+        // Exchange code for tokens
         const tokenResp = await fetch("https://www.strava.com/oauth/token", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -78,35 +64,42 @@ app.get("/exchange-code", async (req, res) => {
         const tokenData = await tokenResp.json();
         console.log("Strava token response:", tokenData);
 
-        if (!tokenData.refresh_token) {
+        if (!tokenData.refresh_token || !tokenData.athlete?.id) {
             return res.status(400).json({ message: tokenData.message || "Failed to get refresh token" });
         }
 
         const accessToken = tokenData.access_token;
         const refreshToken = tokenData.refresh_token;
+        const athleteId = tokenData.athlete.id;
 
-        // Step 2: Fetch user profile to get name
+        // Fetch user profile (optional, to store name)
         const profileResp = await fetch("https://www.strava.com/api/v3/athlete", {
             headers: { Authorization: `Bearer ${accessToken}` }
         });
-
         const profileData = await profileResp.json();
         const name = profileData.firstname && profileData.lastname
             ? `${profileData.firstname} ${profileData.lastname}`
             : "Unknown Athlete";
 
-        // Step 3: Save user name + refresh token
-        saveRefreshToken(userId, name, refreshToken);
+        // Save athlete ID + name + refresh token
+        saveRefreshToken(athleteId, name, refreshToken);
 
-        res.json({ refresh_token: refreshToken, name });
+        res.json({ refresh_token: refreshToken, name, athleteId });
+
     } catch (err) {
         console.error("Exchange error:", err);
         res.status(500).json({ message: "Server error" });
     }
 });
 
-// Route to list saved tokens (protected)
-app.get("/tokens", requireAuth, (req, res) => {
+// Restricted /tokens endpoint (replace ADMIN_ID with your Strava athlete ID)
+const ADMIN_ATHLETE_ID = 12345678; // <-- put your own Strava athlete ID here
+app.get("/tokens", (req, res) => {
+    const requesterId = parseInt(req.query.athleteId);
+    if (requesterId !== ADMIN_ATHLETE_ID) {
+        return res.status(403).json({ message: "Forbidden: You cannot view tokens" });
+    }
+
     if (fs.existsSync(TOKENS_FILE)) {
         const data = fs.readFileSync(TOKENS_FILE);
         res.json(JSON.parse(data));

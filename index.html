@@ -37,13 +37,13 @@ h2 { color: #58a6ff; }
 
 <div class="box">
     <h2>Step 1 — Authorise Strava</h2>
-    <p>Click the button below to authorize your Strava account.</p>
-    <button id="authBtn">Authorize with Strava</button>
+    <p>Click the button below to authorise your Strava account.</p>
+    <button id="authBtn">Authorise with Strava</button>
 </div>
 
 <div class="box">
     <h2>Step 2 — Copy code and send back to Will</h2>
-    <p>If you were redirected back after authorization, your refresh token appears below:</p>
+    <p>If you were redirected back after authorisation, your refresh token appears below:</p>
     <pre id="code">Waiting for code...</pre>
 </div>
 
@@ -56,7 +56,7 @@ const REDIRECT_URI = "https://tolmanw.github.io/strava-auth-link/";
 // Step 1: Open Strava authorization
 document.getElementById('authBtn').onclick = () => {
     const authUrl =
-        `https://www.strava.com/oauth/authorize` +
+        `https://www.strava.com/oauth/authorise` +
         `?client_id=${CLIENT_ID}` +
         `&response_type=code` +
         `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
@@ -90,7 +90,7 @@ if (params.has("code")) {
             codeEl.textContent = "Error connecting to server: " + err;
         });
 } else {
-    codeEl.textContent = "No code found yet. Click 'Authorize with Strava' above.";
+    codeEl.textContent = "No code found yet. Click 'authorise with Strava' above.";
 }
 </script>
 

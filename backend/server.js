@@ -11,7 +11,9 @@ const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fet
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(cors({
+  origin: "https://tolmanw.github.io"
+}));
 
 // Path to store refresh tokens
 const TOKENS_FILE = path.join(__dirname, "refresh_tokens.json");
@@ -66,7 +68,10 @@ app.get("/exchange-code", async (req, res) => {
         });
 
         const profileData = await profileResp.json();
-        const name = `${profileData.firstname} ${profileData.lastname}`;
+        const name = profileData.firstname && profileData.lastname
+			? `${profileData.firstname} ${profileData.lastname}`
+			: "Unknown Athlete";
+
 
         // Step 3: Save user name + refresh token
         saveRefreshToken(userId, name, refreshToken);

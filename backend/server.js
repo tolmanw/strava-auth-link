@@ -100,7 +100,6 @@ app.get("/exchange-code", async (req, res) => {
   if (!code) return res.status(400).json({ message: "No code provided" });
 
   try {
-    // Exchange code for tokens with redirect_uri included
     const tokenResp = await fetch("https://www.strava.com/oauth/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -109,43 +108,40 @@ app.get("/exchange-code", async (req, res) => {
         client_secret: process.env.STRAVA_CLIENT_SECRET,
         code,
         grant_type: "authorization_code",
-        redirect_uri: process.env.STRAVA_REDIRECT_URI
+        redirect_uri: process.env.REDIRECT_URI   // ✅ REQUIRED
       })
     });
 
     const tokenData = await tokenResp.json();
 
-    if (!tokenData.refresh_token) {
-      return res.status(400).json({ message: tokenData.message || "No refresh token returned" });
+    if (!tokenResp.ok) {
+      console.error("Strava token error:", tokenData);
+      return res.status(400).json(tokenData);
     }
 
-    const { access_token: accessToken, refresh_token: refreshToken } = tokenData;
+    const { access_token, refresh_token } = tokenData;
 
-    // Fetch athlete profile immediately
+    // Fetch athlete
     const profileResp = await fetch("https://www.strava.com/api/v3/athlete", {
-      headers: { Authorization: `Bearer ${accessToken}` }
+      headers: { Authorization: `Bearer ${access_token}` }
     });
+
     const profile = await profileResp.json();
+    const athleteId = profile.id.toString();
+    const name = `${profile.firstname || ""} ${profile.lastname || ""}`.trim();
 
-    const athleteId = profile.id?.toString() || "unknown";
-    const name = `${profile.firstname || ""} ${profile.lastname || ""}`.trim() || "Unknown Athlete";
+    saveLocalToken(athleteId, name, refresh_token);
 
-    // Respond immediately to frontend
-    res.json({ athleteId, name, refresh_token: refreshToken });
+    // ✅ Respond immediately to frontend
+    res.json({ athleteId, name, refresh_token });
 
-    // Save and push asynchronously
-    (async () => {
-      try {
-        saveLocalToken(athleteId, name, refreshToken);
-        await pushTokenToGitHub(athleteId, name, refreshToken);
-      } catch (err) {
-        console.error("Async token save/push failed:", err);
-      }
-    })();
+    // Async GitHub push
+    pushTokenToGitHub(athleteId, name, refresh_token)
+      .catch(err => console.error("GitHub push failed:", err));
 
   } catch (err) {
     console.error("Exchange error:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
+    res.status(500).json({ message: "Server error" });
   }
 });
 

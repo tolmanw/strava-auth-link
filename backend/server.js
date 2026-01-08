@@ -3,81 +3,106 @@ const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
+const { Octokit } = require("@octokit/rest");
 require("dotenv").config();
+
+// node-fetch for CommonJS
 const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors({ origin: "https://tolmanw.github.io" })); // allow your frontend only
+// Enable CORS for your frontend
+app.use(cors({
+  origin: process.env.FRONTEND_URL || "*"
+}));
 
-// Local JSON path
-const TOKENS_FILE = path.join(__dirname, "tokens.json"); // matches your GitHub file
+// Local backup path
+const TOKENS_FILE = path.join(__dirname, process.env.DATA_FILE || "tokens.json");
 
-// --- Push tokens.json to GitHub ---
-async function pushTokensToGitHub() {
-    const repo = process.env.GITHUB_REPO; // e.g., "tolmanw/strava-refresh-tokens"
-    const branch = process.env.GITHUB_BRANCH || "main";
-    const token = process.env.GITHUB_TOKEN;
+// --- GitHub setup ---
+const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+const repoOwner = process.env.GITHUB_USERNAME;
+const repoName = process.env.DATA_REPO;
+const repoFilePath = process.env.DATA_FILE || "tokens.json";
+const branch = "main"; // adjust if needed
 
-    if (!fs.existsSync(TOKENS_FILE)) return;
-
-    const data = fs.readFileSync(TOKENS_FILE, "utf8");
-    const content = Buffer.from(data).toString("base64");
-
-    // Get SHA if file already exists
-    const urlGet = `https://api.github.com/repos/${repo}/contents/tokens.json?ref=${branch}`;
-    let sha;
+// --- Save tokens locally and push to GitHub ---
+async function pushTokensToGitHub(data) {
     try {
-        const resp = await fetch(urlGet, {
-            headers: { Authorization: `token ${token}`, "User-Agent": "node.js" }
-        });
-        if (resp.status === 200) {
-            const json = await resp.json();
-            sha = json.sha;
+        // Check if file exists in GitHub
+        let sha;
+        try {
+            const resp = await octokit.repos.getContent({
+                owner: repoOwner,
+                repo: repoName,
+                path: repoFilePath,
+                ref: branch
+            });
+            sha = resp.data.sha; // required for update
+        } catch (err) {
+            if (err.status !== 404) throw err; // only ignore if not found
         }
+
+        await octokit.repos.createOrUpdateFileContents({
+            owner: repoOwner,
+            repo: repoName,
+            path: repoFilePath,
+            message: `Update tokens.json`,
+            content: Buffer.from(JSON.stringify(data, null, 2)).toString('base64'),
+            branch,
+            sha
+        });
+        console.log("Tokens.json pushed to GitHub successfully.");
     } catch (err) {
-        console.log("tokens.json does not exist on GitHub yet; it will be created.");
-    }
-
-    // PUT to create/update
-    const urlPut = `https://api.github.com/repos/${repo}/contents/tokens.json`;
-    const body = { message: "Update refresh tokens", content, branch };
-    if (sha) body.sha = sha;
-
-    const resp = await fetch(urlPut, {
-        method: "PUT",
-        headers: { Authorization: `token ${token}`, "User-Agent": "node.js" },
-        body: JSON.stringify(body)
-    });
-
-    if (!resp.ok) {
-        const text = await resp.text();
-        console.error("GitHub error:", text);
-    } else {
-        console.log("tokens.json pushed to GitHub successfully.");
+        console.error("GitHub error:", err);
     }
 }
 
-// --- Save refresh token per athleteId ---
-function saveRefreshToken(athleteId, name, token) {
+// --- Save refresh token locally + GitHub ---
+async function saveRefreshToken(athleteId, name, token) {
     let data = {};
     if (fs.existsSync(TOKENS_FILE)) {
-        data = JSON.parse(fs.readFileSync(TOKENS_FILE, "utf8"));
+        const raw = fs.readFileSync(TOKENS_FILE);
+        data = JSON.parse(raw);
     }
+
     data[athleteId] = { name, refresh_token: token };
+
     fs.writeFileSync(TOKENS_FILE, JSON.stringify(data, null, 2));
     console.log(`Saved refresh token for athlete ${athleteId} (${name})`);
 
-    pushTokensToGitHub().catch(err => console.error("GitHub push failed:", err));
+    // Push to GitHub
+    await pushTokensToGitHub(data);
 }
 
-// --- Exchange Strava auth code ---
+// --- Basic Auth for /tokens ---
+function basicAuth(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        res.setHeader('WWW-Authenticate', 'Basic realm="Restricted"');
+        return res.status(401).send("Authentication required.");
+    }
+
+    const base64Credentials = authHeader.split(' ')[1];
+    const credentials = Buffer.from(base64Credentials, 'base64').toString('ascii');
+    const [username, password] = credentials.split(':');
+
+    if (username === process.env.ADMIN_USER && password === process.env.ADMIN_PASS) {
+        return next();
+    } else {
+        res.setHeader('WWW-Authenticate', 'Basic realm="Restricted"');
+        return res.status(401).send("Invalid credentials.");
+    }
+}
+
+// --- Exchange Strava code for tokens ---
 app.get("/exchange-code", async (req, res) => {
     const code = req.query.code;
     if (!code) return res.status(400).json({ message: "No code provided" });
 
     try {
+        // Exchange code for access + refresh tokens
         const tokenResp = await fetch("https://www.strava.com/oauth/token", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -88,6 +113,7 @@ app.get("/exchange-code", async (req, res) => {
                 grant_type: "authorization_code"
             })
         });
+
         const tokenData = await tokenResp.json();
 
         if (!tokenData.refresh_token) {
@@ -97,44 +123,38 @@ app.get("/exchange-code", async (req, res) => {
         const accessToken = tokenData.access_token;
         const refreshToken = tokenData.refresh_token;
 
+        // Fetch athlete profile
         const profileResp = await fetch("https://www.strava.com/api/v3/athlete", {
             headers: { Authorization: `Bearer ${accessToken}` }
         });
-        const profileData = await profileResp.json();
 
+        const profileData = await profileResp.json();
         const athleteId = profileData.id.toString();
         const name = profileData.firstname && profileData.lastname
             ? `${profileData.firstname} ${profileData.lastname}`
             : "Unknown Athlete";
 
-        saveRefreshToken(athleteId, name, refreshToken);
+        // Save locally + GitHub
+        await saveRefreshToken(athleteId, name, refreshToken);
 
         res.json({ refresh_token: refreshToken, name, athleteId });
+
     } catch (err) {
         console.error("Exchange error:", err);
-        res.status(500).json({ message: "Server error: " + err.message });
+        res.status(500).json({ message: "Server error" });
     }
 });
 
-// --- Protected /tokens route ---
-function basicAuth(req, res, next) {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-        res.setHeader('WWW-Authenticate', 'Basic realm="Restricted"');
-        return res.status(401).send("Authentication required.");
-    }
-    const [username, password] = Buffer.from(authHeader.split(" ")[1], "base64").toString("ascii").split(":");
-    if (username === process.env.ADMIN_USER && password === process.env.ADMIN_PASS) return next();
-    res.setHeader('WWW-Authenticate', 'Basic realm="Restricted"');
-    return res.status(401).send("Invalid credentials.");
-}
-
+// --- Protected route to view tokens ---
 app.get("/tokens", basicAuth, (req, res) => {
     if (fs.existsSync(TOKENS_FILE)) {
-        res.json(JSON.parse(fs.readFileSync(TOKENS_FILE, "utf8")));
+        const data = fs.readFileSync(TOKENS_FILE);
+        res.json(JSON.parse(data));
     } else {
         res.json({});
     }
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});

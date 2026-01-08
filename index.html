@@ -3,32 +3,76 @@
 <head>
 <meta charset="UTF-8">
 <title>Strava Authorization — Troop Dashboard</title>
+
 <style>
-body { font-family: Arial; background:#0d1117; color:#e6edf3; text-align:center; padding:30px; max-width:600px; margin:auto; }
-button { padding:12px 22px; font-size:18px; background:#238636; color:white; border:none; border-radius:8px; cursor:pointer; margin-top:10px; }
-button:hover { background:#2ea043; }
-pre { background:#21262d; padding:15px; border-radius:8px; display:inline-block; margin-top:20px; font-size:16px; white-space: pre-wrap; }
-pre.success { background:#12261a; border:1px solid #238636; color:#3fb950; }
-pre.error { background:#2a1a1a; border:1px solid #ff4c4c; color:#ff6b6b; }
-.box { background:#1b1f25; padding:20px; border-radius:12px; margin-top:25px; text-align:left; }
-h2 { color:#58a6ff; }
+body {
+  font-family: Arial, sans-serif;
+  background: #0d1117;
+  color: #e6edf3;
+  text-align: center;
+  padding: 30px;
+  max-width: 600px;
+  margin: auto;
+}
+
+button {
+  padding: 12px 22px;
+  font-size: 18px;
+  background: #238636;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:hover { background: #2ea043; }
+
+pre {
+  background: #21262d;
+  padding: 15px;
+  border-radius: 8px;
+  margin-top: 20px;
+  font-size: 16px;
+  white-space: pre-wrap;
+}
+
+pre.success {
+  background: #12261a;
+  border: 1px solid #238636;
+  color: #3fb950;
+}
+
+pre.error {
+  background: #2a1a1a;
+  border: 1px solid #ff4c4c;
+  color: #ff6b6b;
+}
+
+.box {
+  background: #1b1f25;
+  padding: 20px;
+  border-radius: 12px;
+  margin-top: 25px;
+  text-align: left;
+}
+
+h2 { color: #58a6ff; }
 </style>
 </head>
+
 <body>
 
 <h1>Join the Troop Strava Dashboard</h1>
-<p>Follow the steps below to connect your Strava account.</p>
+<p>Authorize Strava to join the dashboard.</p>
 
 <div class="box">
   <h2>Step 1 — Authorise Strava</h2>
-  <p>Click the button below to authorize your Strava account.</p>
   <button id="authBtn">Authorise with Strava</button>
 </div>
 
 <div class="box">
   <h2>Step 2 — Your Refresh Token</h2>
-  <p>If you were redirected back after authorisation, your refresh token appears below:</p>
-  <pre id="code">Waiting for code...</pre>
+  <pre id="result">Waiting for authorization...</pre>
   <button id="copyBtn" style="display:none;">Copy Refresh Token</button>
 </div>
 
@@ -37,64 +81,58 @@ const CLIENT_ID = 188228;
 const BACKEND_URL = "https://strava-auth-link.onrender.com";
 const REDIRECT_URI = "https://tolmanw.github.io/strava-auth-link/";
 
-const codeEl = document.getElementById("code");
+const resultEl = document.getElementById("result");
 const copyBtn = document.getElementById("copyBtn");
 
-// Step 1 — redirect user to Strava authorization
-document.getElementById('authBtn').onclick = () => {
-  const authUrl = `https://www.strava.com/oauth/authorize` +
-                  `?client_id=${CLIENT_ID}` +
-                  `&response_type=code` +
-                  `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-                  `&scope=activity:read_all` +
-                  `&approval_prompt=auto`;
-  window.location.href = authUrl;
+// Step 1: Redirect to Strava OAuth
+document.getElementById("authBtn").onclick = () => {
+  const url =
+    "https://www.strava.com/oauth/authorize" +
+    `?client_id=${CLIENT_ID}` +
+    "&response_type=code" +
+    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    "&scope=activity:read_all" +
+    "&approval_prompt=auto";
+
+  window.location.href = url;
 };
 
-// Step 2 — check if Strava redirected back with code
+// Step 2: Handle redirect back from Strava
 const params = new URLSearchParams(window.location.search);
+const code = params.get("code");
 
-if (params.has("code")) {
-  const authCode = params.get("code");
-  codeEl.textContent = "Exchanging code for refresh token...";
+// 🚨 Prevent double exchange
+if (code && !sessionStorage.getItem("strava_used")) {
+  sessionStorage.setItem("strava_used", "true");
 
-  fetch(`${BACKEND_URL}/exchange-code?code=${authCode}`)
-    .then(resp => {
-      if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
-      return resp.json();
-    })
+  // Remove ?code immediately
+  window.history.replaceState({}, document.title, window.location.pathname);
+
+  resultEl.textContent = "Exchanging code for refresh token...";
+
+  fetch(`${BACKEND_URL}/exchange-code?code=${code}`)
+    .then(res => res.json())
     .then(data => {
       if (data.refresh_token) {
-        codeEl.textContent = `Athlete: ${data.name}\nRefresh Token: ${data.refresh_token}`;
-        codeEl.classList.add("success");
+        resultEl.textContent =
+          `Athlete: ${data.name}\n\nRefresh Token:\n${data.refresh_token}`;
+        resultEl.classList.add("success");
 
-        // Show copy button
         copyBtn.style.display = "inline-block";
         copyBtn.onclick = () => {
           navigator.clipboard.writeText(data.refresh_token)
-            .then(() => alert("Refresh token copied!"))
-            .catch(err => alert("Failed to copy token: " + err));
+            .then(() => alert("Refresh token copied!"));
         };
-
-        // Remove ?code from URL after success
-        window.history.replaceState({}, document.title, window.location.pathname);
-
-      } else if (data.message) {
-        codeEl.textContent = "Error: " + data.message;
-        codeEl.classList.add("error");
       } else {
-        codeEl.textContent = "Unknown error during token exchange.";
-        codeEl.classList.add("error");
+        resultEl.textContent = "Error: " + (data.message || "Unknown error");
+        resultEl.classList.add("error");
       }
     })
     .catch(err => {
-      codeEl.textContent = "Error connecting to server: " + err.message;
-      codeEl.classList.add("error");
+      resultEl.textContent = "Error connecting to server";
+      resultEl.classList.add("error");
       console.error(err);
     });
-
-} else {
-  codeEl.textContent = "No code found yet. Click 'Authorise with Strava' above.";
 }
 </script>
 

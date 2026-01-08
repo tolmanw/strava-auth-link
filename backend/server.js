@@ -3,44 +3,106 @@ const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
+const { Octokit } = require("@octokit/rest");
 require("dotenv").config();
 
-// node-fetch v3 CommonJS import
+// node-fetch for CommonJS
 const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Enable CORS for your frontend
 app.use(cors({
-  origin: "https://tolmanw.github.io"
+  origin: process.env.FRONTEND_URL || "*"
 }));
 
-// Path to store refresh tokens
-const TOKENS_FILE = path.join(__dirname, "refresh_tokens.json");
+// Local backup path
+const TOKENS_FILE = path.join(__dirname, process.env.DATA_FILE || "tokens.json");
 
-// Helper to save refresh token with user name
-function saveRefreshToken(userId, name, token) {
+// --- GitHub setup ---
+const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+const repoOwner = process.env.GITHUB_USERNAME;
+const repoName = process.env.DATA_REPO;
+const repoFilePath = process.env.DATA_FILE || "tokens.json";
+const branch = "main"; // adjust if needed
+
+// --- Save tokens locally and push to GitHub ---
+async function pushTokensToGitHub(data) {
+    try {
+        // Check if file exists in GitHub
+        let sha;
+        try {
+            const resp = await octokit.repos.getContent({
+                owner: repoOwner,
+                repo: repoName,
+                path: repoFilePath,
+                ref: branch
+            });
+            sha = resp.data.sha; // required for update
+        } catch (err) {
+            if (err.status !== 404) throw err; // only ignore if not found
+        }
+
+        await octokit.repos.createOrUpdateFileContents({
+            owner: repoOwner,
+            repo: repoName,
+            path: repoFilePath,
+            message: `Update tokens.json`,
+            content: Buffer.from(JSON.stringify(data, null, 2)).toString('base64'),
+            branch,
+            sha
+        });
+        console.log("Tokens.json pushed to GitHub successfully.");
+    } catch (err) {
+        console.error("GitHub error:", err);
+    }
+}
+
+// --- Save refresh token locally + GitHub ---
+async function saveRefreshToken(athleteId, name, token) {
     let data = {};
     if (fs.existsSync(TOKENS_FILE)) {
         const raw = fs.readFileSync(TOKENS_FILE);
         data = JSON.parse(raw);
     }
-    data[userId] = { name, refresh_token: token };
+
+    data[athleteId] = { name, refresh_token: token };
+
     fs.writeFileSync(TOKENS_FILE, JSON.stringify(data, null, 2));
-    console.log(`Saved refresh token for user ${userId} (${name})`);
+    console.log(`Saved refresh token for athlete ${athleteId} (${name})`);
+
+    // Push to GitHub
+    await pushTokensToGitHub(data);
 }
 
-// Route to exchange Strava auth code for refresh token
+// --- Basic Auth for /tokens ---
+function basicAuth(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        res.setHeader('WWW-Authenticate', 'Basic realm="Restricted"');
+        return res.status(401).send("Authentication required.");
+    }
+
+    const base64Credentials = authHeader.split(' ')[1];
+    const credentials = Buffer.from(base64Credentials, 'base64').toString('ascii');
+    const [username, password] = credentials.split(':');
+
+    if (username === process.env.ADMIN_USER && password === process.env.ADMIN_PASS) {
+        return next();
+    } else {
+        res.setHeader('WWW-Authenticate', 'Basic realm="Restricted"');
+        return res.status(401).send("Invalid credentials.");
+    }
+}
+
+// --- Exchange Strava code for tokens ---
 app.get("/exchange-code", async (req, res) => {
     const code = req.query.code;
-    const userId = req.query.userId || "default_user";
-
     if (!code) return res.status(400).json({ message: "No code provided" });
 
     try {
-        console.log(`Exchanging code for user: ${userId}`);
-
-        // Step 1: Exchange code for access + refresh tokens
+        // Exchange code for access + refresh tokens
         const tokenResp = await fetch("https://www.strava.com/oauth/token", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -53,7 +115,6 @@ app.get("/exchange-code", async (req, res) => {
         });
 
         const tokenData = await tokenResp.json();
-        console.log("Strava token response:", tokenData);
 
         if (!tokenData.refresh_token) {
             return res.status(400).json({ message: tokenData.message || "Failed to get refresh token" });
@@ -62,29 +123,30 @@ app.get("/exchange-code", async (req, res) => {
         const accessToken = tokenData.access_token;
         const refreshToken = tokenData.refresh_token;
 
-        // Step 2: Fetch user profile to get name
+        // Fetch athlete profile
         const profileResp = await fetch("https://www.strava.com/api/v3/athlete", {
             headers: { Authorization: `Bearer ${accessToken}` }
         });
 
         const profileData = await profileResp.json();
+        const athleteId = profileData.id.toString();
         const name = profileData.firstname && profileData.lastname
-			? `${profileData.firstname} ${profileData.lastname}`
-			: "Unknown Athlete";
+            ? `${profileData.firstname} ${profileData.lastname}`
+            : "Unknown Athlete";
 
+        // Save locally + GitHub
+        await saveRefreshToken(athleteId, name, refreshToken);
 
-        // Step 3: Save user name + refresh token
-        saveRefreshToken(userId, name, refreshToken);
+        res.json({ refresh_token: refreshToken, name, athleteId });
 
-        res.json({ refresh_token: refreshToken, name });
     } catch (err) {
         console.error("Exchange error:", err);
         res.status(500).json({ message: "Server error" });
     }
 });
 
-// Optional: Route to list saved tokens (for testing)
-app.get("/tokens", (req, res) => {
+// --- Protected route to view tokens ---
+app.get("/tokens", basicAuth, (req, res) => {
     if (fs.existsSync(TOKENS_FILE)) {
         const data = fs.readFileSync(TOKENS_FILE);
         res.json(JSON.parse(data));

@@ -84,7 +84,7 @@ const REDIRECT_URI = "https://tolmanw.github.io/strava-auth-link/";
 const resultEl = document.getElementById("result");
 const copyBtn = document.getElementById("copyBtn");
 
-// Step 1: Redirect to Strava OAuth
+// Step 1 — Redirect to Strava
 document.getElementById("authBtn").onclick = () => {
   const url =
     "https://www.strava.com/oauth/authorize" +
@@ -97,21 +97,30 @@ document.getElementById("authBtn").onclick = () => {
   window.location.href = url;
 };
 
-// Step 2: Handle redirect back from Strava
+// Step 2 — Handle redirect
 const params = new URLSearchParams(window.location.search);
-const code = params.get("code");
 
-// 🚨 Prevent double exchange
+// 🔐 Robust code extraction (handles ?&code=)
+let code = params.get("code");
+if (!code) {
+  const match = window.location.search.match(/code=([^&]+)/);
+  if (match) code = match[1];
+}
+
+// Prevent double exchange
 if (code && !sessionStorage.getItem("strava_used")) {
   sessionStorage.setItem("strava_used", "true");
 
-  // Remove ?code immediately
+  // Remove query params immediately
   window.history.replaceState({}, document.title, window.location.pathname);
 
   resultEl.textContent = "Exchanging code for refresh token...";
 
   fetch(`${BACKEND_URL}/exchange-code?code=${code}`)
-    .then(res => res.json())
+    .then(res => {
+      if (!res.ok) throw new Error("Backend error");
+      return res.json();
+    })
     .then(data => {
       if (data.refresh_token) {
         resultEl.textContent =
@@ -119,10 +128,9 @@ if (code && !sessionStorage.getItem("strava_used")) {
         resultEl.classList.add("success");
 
         copyBtn.style.display = "inline-block";
-        copyBtn.onclick = () => {
+        copyBtn.onclick = () =>
           navigator.clipboard.writeText(data.refresh_token)
             .then(() => alert("Refresh token copied!"));
-        };
       } else {
         resultEl.textContent = "Error: " + (data.message || "Unknown error");
         resultEl.classList.add("error");

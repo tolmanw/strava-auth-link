@@ -6,8 +6,6 @@ const path = require("path");
 require("dotenv").config();
 
 const { Octokit } = require("@octokit/rest");
-
-// node-fetch v3 CommonJS import
 const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 const app = express();
@@ -15,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 
 // --- CORS: allow frontend domain ---
 app.use(cors({
-  origin: process.env.FRONTEND_URL, // e.g., https://tolmanw.github.io
+  origin: process.env.FRONTEND_URL // https://tolmanw.github.io
 }));
 
 // Path to local JSON
@@ -29,9 +27,7 @@ const octokit = new Octokit({
 // --- Save token locally ---
 function saveLocalToken(athleteId, name, token) {
   let data = {};
-  if (fs.existsSync(DATA_FILE)) {
-    data = JSON.parse(fs.readFileSync(DATA_FILE));
-  }
+  if (fs.existsSync(DATA_FILE)) data = JSON.parse(fs.readFileSync(DATA_FILE));
   data[athleteId] = { name, refresh_token: token };
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
   console.log(`Saved locally: ${athleteId} (${name})`);
@@ -57,9 +53,7 @@ async function pushTokenToGitHub(athleteId, name, token) {
   }
 
   let data = {};
-  if (fs.existsSync(DATA_FILE)) {
-    data = JSON.parse(fs.readFileSync(DATA_FILE));
-  }
+  if (fs.existsSync(DATA_FILE)) data = JSON.parse(fs.readFileSync(DATA_FILE));
   data[athleteId] = { name, refresh_token: token };
 
   await octokit.repos.createOrUpdateFileContents({
@@ -75,26 +69,7 @@ async function pushTokenToGitHub(athleteId, name, token) {
   console.log(`Pushed ${athleteId} to GitHub`);
 }
 
-// --- Basic Auth Middleware for /tokens ---
-function basicAuth(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Restricted"');
-    return res.status(401).send("Authentication required.");
-  }
-
-  const base64Credentials = authHeader.split(' ')[1];
-  const [username, password] = Buffer.from(base64Credentials, 'base64').toString('ascii').split(':');
-
-  if (username === process.env.ADMIN_USER && password === process.env.ADMIN_PASS) {
-    return next();
-  } else {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Restricted"');
-    return res.status(401).send("Invalid credentials.");
-  }
-}
-
-// --- Route: Exchange Strava code ---
+// --- Exchange Strava code ---
 app.get("/exchange-code", async (req, res) => {
   const code = req.query.code;
   if (!code) return res.status(400).json({ message: "No code provided" });
@@ -108,34 +83,29 @@ app.get("/exchange-code", async (req, res) => {
         client_secret: process.env.STRAVA_CLIENT_SECRET,
         code,
         grant_type: "authorization_code",
-        redirect_uri: process.env.REDIRECT_URI   // ✅ REQUIRED
+        redirect_uri: process.env.REDIRECT_URI // must match frontend
       })
     });
 
     const tokenData = await tokenResp.json();
-
-    if (!tokenResp.ok) {
-      console.error("Strava token error:", tokenData);
-      return res.status(400).json(tokenData);
-    }
+    if (!tokenResp.ok) return res.status(400).json(tokenData);
 
     const { access_token, refresh_token } = tokenData;
 
-    // Fetch athlete
     const profileResp = await fetch("https://www.strava.com/api/v3/athlete", {
       headers: { Authorization: `Bearer ${access_token}` }
     });
-
     const profile = await profileResp.json();
+
     const athleteId = profile.id.toString();
-    const name = `${profile.firstname || ""} ${profile.lastname || ""}`.trim();
+    const name = `${profile.firstname || ""} ${profile.lastname || ""}`.trim() || "Unknown Athlete";
 
     saveLocalToken(athleteId, name, refresh_token);
 
-    // ✅ Respond immediately to frontend
+    // Respond immediately
     res.json({ athleteId, name, refresh_token });
 
-    // Async GitHub push
+    // Push to GitHub asynchronously
     pushTokenToGitHub(athleteId, name, refresh_token)
       .catch(err => console.error("GitHub push failed:", err));
 
@@ -145,16 +115,10 @@ app.get("/exchange-code", async (req, res) => {
   }
 });
 
-// --- Protected route to view saved tokens ---
-app.get("/tokens", basicAuth, (req, res) => {
-  if (fs.existsSync(DATA_FILE)) {
-    const data = JSON.parse(fs.readFileSync(DATA_FILE));
-    res.json(data);
-  } else {
-    res.json({});
-  }
+// Optional protected route to view saved tokens
+app.get("/tokens", (req, res) => {
+  if (fs.existsSync(DATA_FILE)) res.json(JSON.parse(fs.readFileSync(DATA_FILE)));
+  else res.json({});
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

@@ -13,11 +13,12 @@ const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fet
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// --- CORS: allow frontend domain ---
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "*" // allow your frontend
+  origin: process.env.FRONTEND_URL, // e.g., https://tolmanw.github.io
 }));
 
-// Path to store local JSON temporarily (optional)
+// Path to local JSON
 const DATA_FILE = path.join(__dirname, process.env.DATA_FILE || "tokens.json");
 
 // GitHub Octokit client
@@ -25,7 +26,7 @@ const octokit = new Octokit({
   auth: process.env.GITHUB_TOKEN
 });
 
-// --- Helper: save token locally ---
+// --- Save token locally ---
 function saveLocalToken(athleteId, name, token) {
   let data = {};
   if (fs.existsSync(DATA_FILE)) {
@@ -36,13 +37,12 @@ function saveLocalToken(athleteId, name, token) {
   console.log(`Saved locally: ${athleteId} (${name})`);
 }
 
-// --- Helper: push token to GitHub asynchronously ---
+// --- Push token to GitHub asynchronously ---
 async function pushTokenToGitHub(athleteId, name, token) {
   const repo = process.env.DATA_REPO; // e.g., "username/private-repo"
   const pathInRepo = process.env.DATA_FILE || "tokens.json";
   let sha;
 
-  // Get current file SHA if it exists
   try {
     const resp = await octokit.repos.getContent({
       owner: repo.split("/")[0],
@@ -56,14 +56,12 @@ async function pushTokenToGitHub(athleteId, name, token) {
     console.log("File does not exist yet in GitHub, creating new.");
   }
 
-  // Read local data for upload
   let data = {};
   if (fs.existsSync(DATA_FILE)) {
     data = JSON.parse(fs.readFileSync(DATA_FILE));
   }
   data[athleteId] = { name, refresh_token: token };
 
-  // Push to GitHub
   await octokit.repos.createOrUpdateFileContents({
     owner: repo.split("/")[0],
     repo: repo.split("/")[1],
@@ -102,7 +100,7 @@ app.get("/exchange-code", async (req, res) => {
   if (!code) return res.status(400).json({ message: "No code provided" });
 
   try {
-    // Exchange code for tokens
+    // Exchange code for tokens with redirect_uri included
     const tokenResp = await fetch("https://www.strava.com/oauth/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -110,37 +108,44 @@ app.get("/exchange-code", async (req, res) => {
         client_id: process.env.STRAVA_CLIENT_ID,
         client_secret: process.env.STRAVA_CLIENT_SECRET,
         code,
-        grant_type: "authorization_code"
+        grant_type: "authorization_code",
+        redirect_uri: process.env.STRAVA_REDIRECT_URI
       })
     });
+
     const tokenData = await tokenResp.json();
 
-    if (!tokenData.refresh_token) return res.status(400).json({ message: tokenData.message });
+    if (!tokenData.refresh_token) {
+      return res.status(400).json({ message: tokenData.message || "No refresh token returned" });
+    }
 
     const { access_token: accessToken, refresh_token: refreshToken } = tokenData;
 
-    // Get athlete profile immediately
+    // Fetch athlete profile immediately
     const profileResp = await fetch("https://www.strava.com/api/v3/athlete", {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     const profile = await profileResp.json();
-    const athleteId = profile.id.toString();
+
+    const athleteId = profile.id?.toString() || "unknown";
     const name = `${profile.firstname || ""} ${profile.lastname || ""}`.trim() || "Unknown Athlete";
 
-    // Save locally
-    saveLocalToken(athleteId, name, refreshToken);
-
-    // Respond to frontend immediately
+    // Respond immediately to frontend
     res.json({ athleteId, name, refresh_token: refreshToken });
 
-    // Push to GitHub asynchronously
-    pushTokenToGitHub(athleteId, name, refreshToken).catch(err => {
-      console.error("Failed to push token to GitHub:", err);
-    });
+    // Save and push asynchronously
+    (async () => {
+      try {
+        saveLocalToken(athleteId, name, refreshToken);
+        await pushTokenToGitHub(athleteId, name, refreshToken);
+      } catch (err) {
+        console.error("Async token save/push failed:", err);
+      }
+    })();
 
   } catch (err) {
     console.error("Exchange error:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 

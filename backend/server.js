@@ -5,114 +5,173 @@ const fs = require("fs");
 const path = require("path");
 require("dotenv").config();
 
-// node-fetch v3 CommonJS import
-const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Allow requests from your frontend only (or "*" for testing)
-app.use(cors({
-  origin: "https://tolmanw.github.io" // change as needed
-}));
+app.use(cors({ origin: "*" }));
 
-// Path to store refresh tokens
-const TOKENS_FILE = path.join(__dirname, "refresh_tokens.json");
+// --------------------
+// GitHub helpers
+// --------------------
+const TMP_DIR = path.join(__dirname, "data");
+const TOKENS_FILE = path.join(TMP_DIR, process.env.DATA_FILE);
 
-// --- Helper to save refresh token with athlete ID as key ---
-function saveRefreshToken(athleteId, name, token) {
-    let data = {};
-    if (fs.existsSync(TOKENS_FILE)) {
-        const raw = fs.readFileSync(TOKENS_FILE);
-        data = JSON.parse(raw);
-    }
-    // Use athleteId as key to avoid overwriting
-    data[athleteId] = { name, refresh_token: token };
-    fs.writeFileSync(TOKENS_FILE, JSON.stringify(data, null, 2));
-    console.log(`Saved refresh token for athlete ${athleteId} (${name})`);
+async function githubRequest(url, method = "GET", body) {
+  const headers = {
+    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+    Accept: "application/vnd.github+json"
+  };
+
+  if (body) headers["Content-Type"] = "application/json";
+
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub error: ${res.status} ${text}`);
+  }
+
+  return res.json();
 }
 
-// --- Basic Auth Middleware for /tokens ---
+async function pullTokensFromGitHub() {
+  if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR);
+
+  try {
+    const file = await githubRequest(
+      `https://api.github.com/repos/${process.env.GITHUB_USERNAME}/${process.env.DATA_REPO}/contents/${process.env.DATA_FILE}`
+    );
+
+    const content = Buffer.from(file.content, "base64").toString("utf-8");
+    fs.writeFileSync(TOKENS_FILE, content);
+    return file.sha;
+  } catch {
+    fs.writeFileSync(TOKENS_FILE, "{}");
+    return null;
+  }
+}
+
+async function pushTokensToGitHub(json, sha) {
+  const content = Buffer.from(JSON.stringify(json, null, 2)).toString("base64");
+
+  await githubRequest(
+    `https://api.github.com/repos/${process.env.GITHUB_USERNAME}/${process.env.DATA_REPO}/contents/${process.env.DATA_FILE}`,
+    "PUT",
+    {
+      message: "Update Strava refresh tokens",
+      content,
+      sha
+    }
+  );
+}
+
+// --------------------
+// Save token (atomic)
+// --------------------
+async function saveRefreshToken(athleteId, name, refreshToken) {
+  const sha = await pullTokensFromGitHub();
+  const data = JSON.parse(fs.readFileSync(TOKENS_FILE));
+
+  data[athleteId] = {
+    name,
+    refresh_token: refreshToken,
+    updated_at: new Date().toISOString()
+  };
+
+  await pushTokensToGitHub(data, sha);
+}
+
+// --------------------
+// Basic Auth
+// --------------------
 function basicAuth(req, res, next) {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-        res.setHeader('WWW-Authenticate', 'Basic realm="Restricted"');
-        return res.status(401).send("Authentication required.");
-    }
+  const auth = req.headers.authorization;
+  if (!auth) {
+    res.setHeader("WWW-Authenticate", 'Basic realm="Restricted"');
+    return res.status(401).send("Auth required");
+  }
 
-    const base64Credentials = authHeader.split(' ')[1] || '';
-    const credentials = Buffer.from(base64Credentials, 'base64').toString('ascii');
-    const [username, password] = credentials.split(':').map(s => s.trim());
+  const [user, pass] = Buffer.from(auth.split(" ")[1], "base64")
+    .toString()
+    .split(":");
 
-    if (
-        username === (process.env.ADMIN_USER || "").trim() &&
-        password === (process.env.ADMIN_PASS || "").trim()
-    ) {
-        return next();
-    } else {
-        res.setHeader('WWW-Authenticate', 'Basic realm="Restricted"');
-        return res.status(401).send("Invalid credentials.");
-    }
+  if (
+    user === process.env.ADMIN_USER &&
+    pass === process.env.ADMIN_PASS
+  ) {
+    return next();
+  }
+
+  res.setHeader("WWW-Authenticate", 'Basic realm="Restricted"');
+  res.status(401).send("Invalid credentials");
 }
 
-// --- Route to exchange Strava auth code for refresh token ---
+// --------------------
+// Routes
+// --------------------
 app.get("/exchange-code", async (req, res) => {
-    const code = req.query.code;
-    if (!code) return res.status(400).json({ message: "No code provided" });
+  const code = req.query.code;
+  if (!code) return res.status(400).json({ message: "Missing code" });
 
-    try {
-        // Exchange code for tokens
-        const tokenResp = await fetch("https://www.strava.com/oauth/token", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                client_id: process.env.STRAVA_CLIENT_ID,
-                client_secret: process.env.STRAVA_CLIENT_SECRET,
-                code,
-                grant_type: "authorization_code"
-            })
-        });
+  try {
+    // Exchange auth code
+    const tokenResp = await fetch("https://www.strava.com/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: process.env.STRAVA_CLIENT_ID,
+        client_secret: process.env.STRAVA_CLIENT_SECRET,
+        code,
+        grant_type: "authorization_code"
+      })
+    });
 
-        const tokenData = await tokenResp.json();
+    const tokenData = await tokenResp.json();
+    if (!tokenData.refresh_token)
+      return res.status(400).json(tokenData);
 
-        if (!tokenData.refresh_token) {
-            return res.status(400).json({ message: tokenData.message || "Failed to get refresh token" });
+    // Fetch athlete
+    const profileResp = await fetch(
+      "https://www.strava.com/api/v3/athlete",
+      {
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`
         }
+      }
+    );
 
-        const accessToken = tokenData.access_token;
-        const refreshToken = tokenData.refresh_token;
+    const athlete = await profileResp.json();
 
-        // Fetch user profile to get athlete ID and name
-        const profileResp = await fetch("https://www.strava.com/api/v3/athlete", {
-            headers: { Authorization: `Bearer ${accessToken}` }
-        });
-        const profileData = await profileResp.json();
+    await saveRefreshToken(
+      athlete.id.toString(),
+      `${athlete.firstname} ${athlete.lastname}`,
+      tokenData.refresh_token
+    );
 
-        const athleteId = profileData.id.toString();
-        const name = profileData.firstname && profileData.lastname
-            ? `${profileData.firstname} ${profileData.lastname}`
-            : "Unknown Athlete";
-
-        // Save athlete ID + name + refresh token
-        saveRefreshToken(athleteId, name, refreshToken);
-
-        res.json({ refresh_token: refreshToken, name, athleteId });
-    } catch (err) {
-        console.error("Exchange error:", err);
-        res.status(500).json({ message: "Server error" });
-    }
+    res.json({
+      success: true,
+      athleteId: athlete.id,
+      name: `${athlete.firstname} ${athlete.lastname}`
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
-// --- Protected route to view all saved tokens ---
-app.get("/tokens", basicAuth, (req, res) => {
-    if (fs.existsSync(TOKENS_FILE)) {
-        const data = fs.readFileSync(TOKENS_FILE);
-        res.json(JSON.parse(data));
-    } else {
-        res.json({});
-    }
+// Protected viewer
+app.get("/tokens", basicAuth, async (req, res) => {
+  await pullTokensFromGitHub();
+  res.json(JSON.parse(fs.readFileSync(TOKENS_FILE)));
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });

@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "dependencies": {
+    "@octokit/rest": "^22.0.1",
     "abbrev": "^1.1.1",
     "accepts": "^2.0.0",
     "agent-base": "^6.0.2",

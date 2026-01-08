@@ -5,7 +5,7 @@
 <title>Strava Authorization — Troop Dashboard</title>
 <style>
 body { font-family: Arial; background:#0d1117; color:#e6edf3; text-align:center; padding:30px; max-width:600px; margin:auto; }
-button { padding:12px 22px; font-size:18px; background:#238636; color:white; border:none; border-radius:8px; cursor:pointer; }
+button { padding:12px 22px; font-size:18px; background:#238636; color:white; border:none; border-radius:8px; cursor:pointer; margin-top:10px; }
 button:hover { background:#2ea043; }
 pre { background:#21262d; padding:15px; border-radius:8px; display:inline-block; margin-top:20px; font-size:16px; white-space: pre-wrap; }
 pre.success { background:#12261a; border:1px solid #238636; color:#3fb950; }
@@ -29,6 +29,7 @@ h2 { color:#58a6ff; }
   <h2>Step 2 — Your Refresh Token</h2>
   <p>If you were redirected back after authorisation, your refresh token appears below:</p>
   <pre id="code">Waiting for code...</pre>
+  <button id="copyBtn" style="display:none;">Copy Refresh Token</button>
 </div>
 
 <script>
@@ -37,6 +38,7 @@ const BACKEND_URL = "https://strava-auth-link.onrender.com";
 const REDIRECT_URI = "https://tolmanw.github.io/strava-auth-link/";
 
 const codeEl = document.getElementById("code");
+const copyBtn = document.getElementById("copyBtn");
 
 // Step 1 — redirect user to Strava authorization
 document.getElementById('authBtn').onclick = () => {
@@ -66,7 +68,15 @@ if (params.has("code")) {
         codeEl.textContent = `Athlete: ${data.name}\nRefresh Token: ${data.refresh_token}`;
         codeEl.classList.add("success");
 
-        // Remove ?code= from URL after success
+        // Show copy button
+        copyBtn.style.display = "inline-block";
+        copyBtn.onclick = () => {
+          navigator.clipboard.writeText(data.refresh_token)
+            .then(() => alert("Refresh token copied!"))
+            .catch(err => alert("Failed to copy token: " + err));
+        };
+
+        // Remove ?code from URL after success
         window.history.replaceState({}, document.title, window.location.pathname);
 
       } else if (data.message) {
@@ -80,7 +90,7 @@ if (params.has("code")) {
     .catch(err => {
       codeEl.textContent = "Error connecting to server: " + err.message;
       codeEl.classList.add("error");
-      console.error("Fetch error:", err);
+      console.error(err);
     });
 
 } else {

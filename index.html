@@ -5,58 +5,14 @@
 <title>Strava Authorization — Troop Dashboard</title>
 
 <style>
-body {
-  font-family: Arial, sans-serif;
-  background: #0d1117;
-  color: #e6edf3;
-  text-align: center;
-  padding: 30px;
-  max-width: 600px;
-  margin: auto;
-}
-
-button {
-  padding: 12px 22px;
-  font-size: 18px;
-  background: #238636;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-button:hover { background: #2ea043; }
-
-pre {
-  background: #21262d;
-  padding: 15px;
-  border-radius: 8px;
-  margin-top: 20px;
-  font-size: 16px;
-  white-space: pre-wrap;
-}
-
-pre.success {
-  background: #12261a;
-  border: 1px solid #238636;
-  color: #3fb950;
-}
-
-pre.error {
-  background: #2a1a1a;
-  border: 1px solid #ff4c4c;
-  color: #ff6b6b;
-}
-
-.box {
-  background: #1b1f25;
-  padding: 20px;
-  border-radius: 12px;
-  margin-top: 25px;
-  text-align: left;
-}
-
-h2 { color: #58a6ff; }
+body { font-family: Arial; background:#0d1117; color:#e6edf3; text-align:center; padding:30px; max-width:600px; margin:auto; }
+button { padding:12px 22px; font-size:18px; background:#238636; color:white; border:none; border-radius:8px; cursor:pointer; }
+button:hover { background:#2ea043; }
+pre { background:#21262d; padding:15px; border-radius:8px; margin-top:20px; font-size:16px; white-space:pre-wrap; }
+pre.success { background:#12261a; border:1px solid #238636; color:#3fb950; }
+pre.error { background:#2a1a1a; border:1px solid #ff4c4c; color:#ff6b6b; }
+.box { background:#1b1f25; padding:20px; border-radius:12px; margin-top:25px; text-align:left; }
+h2 { color:#58a6ff; }
 </style>
 </head>
 
@@ -93,15 +49,14 @@ document.getElementById("authBtn").onclick = () => {
     `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
     "&scope=activity:read_all" +
     "&approval_prompt=auto";
-
   window.location.href = url;
 };
 
-// Step 2 — Handle redirect
+// Step 2 — Handle redirect & robust code parsing
 const params = new URLSearchParams(window.location.search);
-
-// 🔐 Robust code extraction (handles ?&code=)
 let code = params.get("code");
+
+// Fallback for malformed ?&code=
 if (!code) {
   const match = window.location.search.match(/code=([^&]+)/);
   if (match) code = match[1];
@@ -110,17 +65,12 @@ if (!code) {
 // Prevent double exchange
 if (code && !sessionStorage.getItem("strava_used")) {
   sessionStorage.setItem("strava_used", "true");
-
-  // Remove query params immediately
   window.history.replaceState({}, document.title, window.location.pathname);
 
   resultEl.textContent = "Exchanging code for refresh token...";
 
   fetch(`${BACKEND_URL}/exchange-code?code=${code}`)
-    .then(res => {
-      if (!res.ok) throw new Error("Backend error");
-      return res.json();
-    })
+    .then(res => res.json())
     .then(data => {
       if (data.refresh_token) {
         resultEl.textContent =

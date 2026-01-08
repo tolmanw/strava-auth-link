@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <title>Strava Authorization — Troop Dashboard</title>
-
 <style>
 body { font-family: Arial; background:#0d1117; color:#e6edf3; text-align:center; padding:30px; max-width:600px; margin:auto; }
 button { padding:12px 22px; font-size:18px; background:#238636; color:white; border:none; border-radius:8px; cursor:pointer; }
@@ -15,7 +14,6 @@ pre.error { background:#2a1a1a; border:1px solid #ff4c4c; color:#ff6b6b; }
 h2 { color:#58a6ff; }
 </style>
 </head>
-
 <body>
 
 <h1>Join the Troop Strava Dashboard</h1>
@@ -34,7 +32,7 @@ h2 { color:#58a6ff; }
 
 <script>
 const CLIENT_ID = 188228;
-const BACKEND_URL = "https://strava-auth-link.onrender.com";
+const BACKEND_URL = "https://strava-auth-link.onrender.com"; // Render backend URL
 const REDIRECT_URI = "https://tolmanw.github.io/strava-auth-link/";
 
 const resultEl = document.getElementById("result");
@@ -43,26 +41,20 @@ const copyBtn = document.getElementById("copyBtn");
 // Step 1 — Redirect to Strava
 document.getElementById("authBtn").onclick = () => {
   const url =
-    "https://www.strava.com/oauth/authorize" +
-    `?client_id=${CLIENT_ID}` +
-    "&response_type=code" +
-    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-    "&scope=activity:read_all" +
-    "&approval_prompt=auto";
+    `https://www.strava.com/oauth/authorize?client_id=${CLIENT_ID}` +
+    `&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    `&scope=activity:read_all&approval_prompt=auto`;
   window.location.href = url;
 };
 
 // Step 2 — Handle redirect & robust code parsing
 const params = new URLSearchParams(window.location.search);
 let code = params.get("code");
-
-// Fallback for malformed ?&code=
 if (!code) {
   const match = window.location.search.match(/code=([^&]+)/);
   if (match) code = match[1];
 }
 
-// Prevent double exchange
 if (code && !sessionStorage.getItem("strava_used")) {
   sessionStorage.setItem("strava_used", "true");
   window.history.replaceState({}, document.title, window.location.pathname);
@@ -76,7 +68,6 @@ if (code && !sessionStorage.getItem("strava_used")) {
         resultEl.textContent =
           `Athlete: ${data.name}\n\nRefresh Token:\n${data.refresh_token}`;
         resultEl.classList.add("success");
-
         copyBtn.style.display = "inline-block";
         copyBtn.onclick = () =>
           navigator.clipboard.writeText(data.refresh_token)

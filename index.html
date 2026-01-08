@@ -36,24 +36,22 @@ h2 { color: #58a6ff; }
 <p>Follow the steps below to connect your Strava account.</p>
 
 <div class="box">
-    <h2>Step 1 — Authorise Strava</h2>
-    <p>Click the button below to authorise your Strava account.</p>
-    <button id="authBtn">Authorise with Strava</button>
+    <h2>Step 1 — Authorize Strava</h2>
+    <p>Click the button below to authorize your Strava account.</p>
+    <button id="authBtn">Authorize with Strava</button>
 </div>
 
 <div class="box">
-    <h2>Step 2 — Copy code and send back to Will</h2>
-    <p>If you were redirected back after authorisation, your refresh token appears below:</p>
+    <h2>Step 2 — Your Refresh Token</h2>
+    <p>If you were redirected back after authorization, your refresh token appears below:</p>
     <pre id="code">Waiting for code...</pre>
 </div>
 
 <script>
 const CLIENT_ID = 188228;
-// Use your public Render backend URL here
-const BACKEND_URL = "https://your-render-backend.onrender.com";
 const REDIRECT_URI = "https://tolmanw.github.io/strava-auth-link/";
+const BACKEND_URL = "https://strava-auth-link.onrender.com"; // Your Render backend
 
-// Step 1: Open Strava authorization
 document.getElementById('authBtn').onclick = () => {
     const authUrl =
         `https://www.strava.com/oauth/authorize` +
@@ -65,20 +63,19 @@ document.getElementById('authBtn').onclick = () => {
     window.location.href = authUrl;
 };
 
-// Step 2: Check if redirected with code
 const params = new URLSearchParams(window.location.search);
 const codeEl = document.getElementById("code");
 
 if (params.has("code")) {
     const authCode = params.get("code");
     codeEl.textContent = "Exchanging code for refresh token...";
-    
-    // Call your public Render backend
-    fetch(`https://strava-auth-link.onrender.com/exchange-code?code=${authCode}`)
+
+    // Call your Render backend
+    fetch(`${BACKEND_URL}/exchange-code?code=${authCode}`)
         .then(resp => resp.json())
         .then(data => {
             if (data.refresh_token) {
-                codeEl.textContent = data.refresh_token;
+                codeEl.textContent = `Athlete: ${data.name}\nRefresh Token: ${data.refresh_token}`;
                 codeEl.classList.add("success");
             } else if (data.message) {
                 codeEl.textContent = "Error: " + data.message;
